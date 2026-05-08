@@ -2,10 +2,8 @@ package outbound
 
 import (
 	"context"
-	"errors"
-	"net/netip"
+	"fmt"
 
-	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/loopback"
 	"github.com/metacubex/mihomo/component/resolver"
@@ -23,75 +21,86 @@ type DirectOption struct {
 }
 
 // DialContext implements C.ProxyAdapter
-func (d *Direct) DialContext(ctx context.Context, metadata *C.Metadata, opts ...dialer.Option) (C.Conn, error) {
+func (d *Direct) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
 	if err := d.loopBack.CheckConn(metadata); err != nil {
 		return nil, err
 	}
-	opts = append(opts, dialer.WithResolver(resolver.DefaultResolver))
-	c, err := dialer.DialContext(ctx, "tcp", metadata.RemoteAddress(), d.Base.DialOptions(opts...)...)
+	opts := d.DialOptions()
+	opts = append(opts, dialer.WithResolver(resolver.DirectHostResolver))
+	c, err := dialer.DialContext(ctx, "tcp", metadata.RemoteAddress(), opts...)
 	if err != nil {
 		return nil, err
 	}
-	N.TCPKeepAlive(c)
 	return d.loopBack.NewConn(NewConn(c, d)), nil
 }
 
 // ListenPacketContext implements C.ProxyAdapter
-func (d *Direct) ListenPacketContext(ctx context.Context, metadata *C.Metadata, opts ...dialer.Option) (C.PacketConn, error) {
+func (d *Direct) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (C.PacketConn, error) {
 	if err := d.loopBack.CheckPacketConn(metadata); err != nil {
 		return nil, err
 	}
-	// net.UDPConn.WriteTo only working with *net.UDPAddr, so we need a net.UDPAddr
-	if !metadata.Resolved() {
-		ip, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, resolver.DefaultResolver)
-		if err != nil {
-			return nil, errors.New("can't resolve ip")
-		}
-		metadata.DstIP = ip
+	if err := d.ResolveUDP(ctx, metadata); err != nil {
+		return nil, err
 	}
-	pc, err := dialer.NewDialer(d.Base.DialOptions(opts...)...).ListenPacket(ctx, "udp", "", netip.AddrPortFrom(metadata.DstIP, metadata.DstPort))
+	pc, err := dialer.NewDialer(d.DialOptions()...).ListenPacket(ctx, "udp", "", metadata.AddrPort())
 	if err != nil {
 		return nil, err
 	}
 	return d.loopBack.NewPacketConn(newPacketConn(pc, d)), nil
 }
 
+func (d *Direct) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
+	if (!metadata.Resolved() || resolver.DirectHostResolver != resolver.DefaultResolver) && metadata.Host != "" {
+		ip, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, resolver.DirectHostResolver)
+		if err != nil {
+			return fmt.Errorf("can't resolve ip: %w", err)
+		}
+		metadata.DstIP = ip
+	}
+	return nil
+}
+
+func (d *Direct) IsL3Protocol(metadata *C.Metadata) bool {
+	return true // tell DNSDialer don't send domain to DialContext, avoid lookback to DefaultResolver
+}
+
 func NewDirectWithOption(option DirectOption) *Direct {
 	return &Direct{
-		Base: &Base{
-			name:   option.Name,
-			tp:     C.Direct,
-			udp:    true,
-			tfo:    option.TFO,
-			mpTcp:  option.MPTCP,
-			iface:  option.Interface,
-			rmark:  option.RoutingMark,
-			prefer: C.NewDNSPrefer(option.IPVersion),
-		},
+		Base: NewBase(BaseOption{
+			Name:         option.Name,
+			Type:         C.Direct,
+			ProviderName: option.ProviderName,
+			UDP:          true,
+			TFO:          option.TFO,
+			MPTCP:        option.MPTCP,
+			Interface:    option.Interface,
+			RoutingMark:  option.RoutingMark,
+			Prefer:       option.IPVersion,
+		}),
 		loopBack: loopback.NewDetector(),
 	}
 }
 
 func NewDirect() *Direct {
 	return &Direct{
-		Base: &Base{
-			name:   "DIRECT",
-			tp:     C.Direct,
-			udp:    true,
-			prefer: C.DualStack,
-		},
+		Base: NewBase(BaseOption{
+			Name:   "DIRECT",
+			Type:   C.Direct,
+			UDP:    true,
+			Prefer: C.DualStack,
+		}),
 		loopBack: loopback.NewDetector(),
 	}
 }
 
 func NewCompatible() *Direct {
 	return &Direct{
-		Base: &Base{
-			name:   "COMPATIBLE",
-			tp:     C.Compatible,
-			udp:    true,
-			prefer: C.DualStack,
-		},
+		Base: NewBase(BaseOption{
+			Name:   "COMPATIBLE",
+			Type:   C.Compatible,
+			UDP:    true,
+			Prefer: C.DualStack,
+		}),
 		loopBack: loopback.NewDetector(),
 	}
 }

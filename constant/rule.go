@@ -1,11 +1,14 @@
 package constant
 
+import "time"
+
 // Rule Type
 const (
 	Domain RuleType = iota
 	DomainSuffix
 	DomainKeyword
 	DomainRegex
+	DomainWildcard
 	GEOSITE
 	GEOIP
 	SrcGEOIP
@@ -22,8 +25,12 @@ const (
 	InUser
 	InName
 	InType
-	Process
+	ProcessName
 	ProcessPath
+	ProcessNameRegex
+	ProcessPathRegex
+	ProcessNameWildcard
+	ProcessPathWildcard
 	RuleSet
 	Network
 	Uid
@@ -46,6 +53,8 @@ func (rt RuleType) String() string {
 		return "DomainKeyword"
 	case DomainRegex:
 		return "DomainRegex"
+	case DomainWildcard:
+		return "DomainWildcard"
 	case GEOSITE:
 		return "GeoSite"
 	case GEOIP:
@@ -76,10 +85,18 @@ func (rt RuleType) String() string {
 		return "InName"
 	case InType:
 		return "InType"
-	case Process:
-		return "Process"
+	case ProcessName:
+		return "ProcessName"
 	case ProcessPath:
 		return "ProcessPath"
+	case ProcessNameRegex:
+		return "ProcessNameRegex"
+	case ProcessPathRegex:
+		return "ProcessPathRegex"
+	case ProcessNameWildcard:
+		return "ProcessNameWildcard"
+	case ProcessPathWildcard:
+		return "ProcessPathWildcard"
 	case MATCH:
 		return "Match"
 	case RuleSet:
@@ -105,9 +122,39 @@ func (rt RuleType) String() string {
 
 type Rule interface {
 	RuleType() RuleType
-	Match(metadata *Metadata) (bool, string)
+	Match(metadata *Metadata, helper RuleMatchHelper) (bool, string)
 	Adapter() string
 	Payload() string
-	ShouldResolveIP() bool
-	ShouldFindProcess() bool
+	ProviderNames() []string
+}
+
+type RuleWrapper interface {
+	Rule
+
+	// SetDisabled to set enable/disable rule
+	SetDisabled(v bool)
+	// IsDisabled return rule is disabled or not
+	IsDisabled() bool
+
+	// HitCount for statistics
+	HitCount() uint64
+	// HitAt for statistics
+	HitAt() time.Time
+	// MissCount for statistics
+	MissCount() uint64
+	// MissAt for statistics
+	MissAt() time.Time
+
+	// Unwrap return Rule
+	Unwrap() Rule
+}
+
+type RuleMatchHelper struct {
+	ResolveIP   func()
+	FindProcess func()
+}
+
+type RuleGroup interface {
+	Rule
+	GetRecodeSize() int
 }

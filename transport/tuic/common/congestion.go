@@ -13,7 +13,7 @@ const (
 	DefaultConnectionReceiveWindow = 67108864 // 64 MB/s
 )
 
-func SetCongestionController(quicConn quic.Connection, cc string, cwnd int) {
+func SetCongestionController(quicConn *quic.Conn, cc string, cwnd int, profile string) {
 	if cwnd == 0 {
 		cwnd = 32
 	}
@@ -21,24 +21,21 @@ func SetCongestionController(quicConn quic.Connection, cc string, cwnd int) {
 	case "cubic":
 		quicConn.SetCongestionControl(
 			congestion.NewCubicSender(
-				congestion.DefaultClock{},
-				congestion.GetInitialPacketSize(quicConn.RemoteAddr()),
+				congestion.GetInitialPacketSize(quicConn),
 				false,
 			),
 		)
 	case "new_reno":
 		quicConn.SetCongestionControl(
 			congestion.NewCubicSender(
-				congestion.DefaultClock{},
-				congestion.GetInitialPacketSize(quicConn.RemoteAddr()),
+				congestion.GetInitialPacketSize(quicConn),
 				true,
 			),
 		)
 	case "bbr_meta_v1":
 		quicConn.SetCongestionControl(
 			congestion.NewBBRSender(
-				congestion.DefaultClock{},
-				congestion.GetInitialPacketSize(quicConn.RemoteAddr()),
+				congestion.GetInitialPacketSize(quicConn),
 				c.ByteCount(cwnd)*congestion.InitialMaxDatagramSize,
 				congestion.DefaultBBRMaxCongestionWindow*congestion.InitialMaxDatagramSize,
 			),
@@ -48,9 +45,9 @@ func SetCongestionController(quicConn quic.Connection, cc string, cwnd int) {
 	case "bbr":
 		quicConn.SetCongestionControl(
 			congestionv2.NewBbrSender(
-				congestionv2.DefaultClock{},
-				congestionv2.GetInitialPacketSize(quicConn.RemoteAddr()),
+				congestionv2.GetInitialPacketSize(quicConn),
 				c.ByteCount(cwnd),
+				congestionv2.Profile(profile),
 			),
 		)
 	}
